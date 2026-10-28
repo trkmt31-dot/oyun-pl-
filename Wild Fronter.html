@@ -1,0 +1,2997 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wild Frontier</title>
+
+<style>
+*{
+    box-sizing:border-box;
+    user-select:none;
+}
+
+html,body{
+    margin:0;
+    width:100%;
+    height:100%;
+    overflow:hidden;
+    background:#111;
+    font-family:Arial,sans-serif;
+    color:white;
+}
+
+canvas{
+    display:block;
+    width:100vw;
+    height:100vh;
+    image-rendering:pixelated;
+    cursor:crosshair;
+}
+
+#menu{
+    position:fixed;
+    inset:0;
+    background:rgba(5,10,6,.94);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    z-index:20;
+}
+
+.panel{
+    width:600px;
+    max-width:92%;
+    background:#121a13;
+    border:2px solid #50634e;
+    border-radius:18px;
+    padding:30px;
+    box-shadow:0 20px 80px #000;
+}
+
+h1{
+    margin:0 0 10px;
+    font-size:38px;
+}
+
+button{
+    background:#304630;
+    border:1px solid #738871;
+    color:white;
+    padding:13px 20px;
+    border-radius:9px;
+    font-weight:bold;
+    cursor:pointer;
+}
+
+button:hover{
+    background:#426044;
+}
+
+#toast{
+    position:fixed;
+    top:80px;
+    left:50%;
+    transform:translateX(-50%);
+    background:#111d;
+    border:1px solid #71816f;
+    padding:10px 18px;
+    border-radius:10px;
+    opacity:0;
+    transition:.2s;
+    z-index:30;
+}
+
+#help{
+    position:fixed;
+    right:15px;
+    bottom:15px;
+    padding:10px 13px;
+    background:#0c120ddd;
+    border:1px solid #4b5949;
+    border-radius:10px;
+    font-size:13px;
+    line-height:1.5;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="toast"></div>
+
+<div id="help">
+<b>WASD</b> Hareket • <b>Shift</b> Koş<br>
+<b>Sol tık</b> Saldır / Blok kır<br>
+<b>Sağ tık</b> Blok koy<br>
+<b>1-9</b> Eşya seç • <b>E</b> Envanter<br>
+<b>F</b> Yemek • <b>C</b> Üret • <b>P</b> Kaydet
+</div>
+
+<div id="menu">
+    <div class="panel">
+        <h1>🌲 WILD FRONTIER</h1>
+
+        <p>
+            Büyük bir blok dünyasında hayatta kal,
+            maden kaz, yaratıklarla savaş ve kendi evini kur.
+        </p>
+
+        <p>
+            🌳 Orman &nbsp; 🏜️ Çöl &nbsp; ⛏️ Maden<br>
+            💎 Elmas &nbsp; 🏘️ Köy &nbsp; 👾 Yaratıklar<br>
+            🏠 Yapı &nbsp; 🌙 Gece &nbsp; ⚔️ Yakın dövüş
+        </p>
+
+        <button onclick="newGame()">🌍 Yeni Dünya</button>
+        <button onclick="loadGame()">💾 Kaydı Yükle</button>
+    </div>
+</div>
+
+<script>
+
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+let W=innerWidth;
+let H=innerHeight;
+
+function resize(){
+    W=innerWidth;
+    H=innerHeight;
+    canvas.width=W;
+    canvas.height=H;
+}
+
+resize();
+addEventListener("resize",resize);
+
+
+/* =====================================================
+   AYARLAR
+===================================================== */
+
+const TILE=32;
+
+const WORLD_W=260;
+const WORLD_H=260;
+
+let world=[];
+let seed=0;
+
+let game=false;
+
+let time=8;
+let day=0;
+
+let camera={
+    x:0,
+    y:0
+};
+
+let keys={};
+
+let mouse={
+    x:0,
+    y:0
+};
+
+let selected=0;
+
+let inventory={
+    wood:8,
+    plank:0,
+    stone:5,
+    coal:0,
+    iron:0,
+    gold:0,
+    diamond:0,
+    food:5,
+    torch:8,
+    brick:0
+};
+
+let player={
+    x:130*TILE+16,
+    y:130*TILE+16,
+    radius:11,
+    hp:100,
+    hunger:100,
+    energy:100,
+    attackCooldown:0,
+    damageFlash:0
+};
+
+let mobs=[];
+let animals=[];
+let villagers=[];
+let particles=[];
+
+
+/* =====================================================
+   HOTBAR
+===================================================== */
+
+const hotbar=[
+    "pickaxe",
+    "sword",
+    "axe",
+    "wood",
+    "stone",
+    "torch",
+    "plank",
+    "brick",
+    "food"
+];
+
+
+/* =====================================================
+   RENKLER
+===================================================== */
+
+const COLORS={
+    grass:"#4c873c",
+    grass2:"#427735",
+    sand:"#c8b16d",
+    water:"#3278a8",
+    stone:"#777b78",
+    wood:"#704b2e",
+    leaves:"#326d31",
+    plank:"#a97543",
+    brick:"#984b39",
+    coal:"#292c2b",
+    iron:"#b8aaa0",
+    gold:"#e0b83c",
+    diamond:"#55d9e7",
+    dirt:"#805d3d"
+};
+
+
+/* =====================================================
+   RASTGELE / NOISE
+===================================================== */
+
+function hash(x,y){
+
+    let n=Math.sin(
+        x*127.1+
+        y*311.7+
+        seed*.00013
+    )*43758.5453;
+
+    return n-Math.floor(n);
+}
+
+
+function noise(x,y){
+
+    let x0=Math.floor(x);
+    let y0=Math.floor(y);
+
+    let xf=x-x0;
+    let yf=y-y0;
+
+    let a=hash(x0,y0);
+    let b=hash(x0+1,y0);
+    let c=hash(x0,y0+1);
+    let d=hash(x0+1,y0+1);
+
+    let u=xf*xf*(3-2*xf);
+    let v=yf*yf*(3-2*yf);
+
+    return a+
+    (b-a)*u+
+    ((c-a)+(a-b-c+d)*u)*v;
+}
+
+
+function terrain(x,y){
+
+    return (
+        noise(x*.035,y*.035)*.55+
+        noise(x*.08,y*.08)*.3+
+        noise(x*.17,y*.17)*.15
+    );
+}
+
+
+/* =====================================================
+   TILE
+===================================================== */
+
+function air(){
+    return {
+        type:"air",
+        solid:false,
+        hp:0
+    };
+}
+
+
+function tile(type,solid=true,hp=3){
+
+    return {
+        type:type,
+        solid:solid,
+        hp:hp
+    };
+}
+
+
+function getTile(x,y){
+
+    if(
+        x<0 ||
+        y<0 ||
+        x>=WORLD_W ||
+        y>=WORLD_H
+    ){
+        return tile("stone",true,999);
+    }
+
+    return world[y][x];
+}
+
+
+function setTile(x,y,t){
+
+    if(
+        x>=0 &&
+        y>=0 &&
+        x<WORLD_W &&
+        y<WORLD_H
+    ){
+        world[y][x]=t;
+    }
+}
+
+
+/* =====================================================
+   DÜNYA OLUŞTUR
+===================================================== */
+
+function generateWorld(){
+
+    world=[];
+
+    for(let y=0;y<WORLD_H;y++){
+
+        let row=[];
+
+        for(let x=0;x<WORLD_W;x++){
+
+            let n=terrain(x,y);
+
+            /*
+             * ÖNEMLİ:
+             * Çimen, kum ve su SOLID DEĞİL.
+             * Böylece oyuncu yürüyebilir.
+             */
+
+            if(n<.25){
+
+                row.push(tile("water",false,999));
+
+            }
+            else if(n<.34){
+
+                row.push(tile("sand",false,999));
+
+            }
+            else{
+
+                row.push(tile("grass",false,999));
+
+            }
+        }
+
+        world.push(row);
+    }
+
+
+    /* taş alanları */
+
+    for(let y=2;y<WORLD_H-2;y++){
+
+        for(let x=2;x<WORLD_W-2;x++){
+
+            if(
+                getTile(x,y).type==="grass" &&
+                noise(x*.13,y*.13)>.82 &&
+                hash(x+100,y+20)>.5
+            ){
+
+                setTile(
+                    x,
+                    y,
+                    tile("stone",true,3)
+                );
+            }
+        }
+    }
+
+
+    /* AĞAÇLAR */
+
+    for(let i=0;i<850;i++){
+
+        let x=
+            Math.floor(
+                5+
+                hash(i,20)*(WORLD_W-10)
+            );
+
+        let y=
+            Math.floor(
+                5+
+                hash(i,40)*(WORLD_H-10)
+            );
+
+        if(
+            getTile(x,y).type!=="grass"
+        ) continue;
+
+        for(let yy=-1;yy<=1;yy++){
+
+            for(let xx=-1;xx<=1;xx++){
+
+                if(
+                    xx!==0 ||
+                    yy!==0
+                ){
+
+                    setTile(
+                        x+xx,
+                        y+yy,
+                        tile("leaves",true,2)
+                    );
+                }
+            }
+        }
+
+        setTile(
+            x,
+            y,
+            tile("wood",true,4)
+        );
+    }
+
+
+    /* MERKEZİ TEMİZLE */
+
+    let cx=Math.floor(WORLD_W/2);
+    let cy=Math.floor(WORLD_H/2);
+
+    for(let y=cy-7;y<=cy+7;y++){
+
+        for(let x=cx-7;x<=cx+7;x++){
+
+            setTile(
+                x,
+                y,
+                tile("grass",false,999)
+            );
+        }
+    }
+
+
+    /* MADEN KAYNAKLARI */
+
+    generateOre("coal",90);
+    generateOre("iron",60);
+    generateOre("gold",35);
+    generateOre("diamond",14);
+
+
+    /* KÖYLER */
+
+    villagers=[];
+
+    for(let i=0;i<8;i++){
+
+        let x=
+            Math.floor(
+                15+
+                hash(i,300)*(WORLD_W-30)
+            );
+
+        let y=
+            Math.floor(
+                15+
+                hash(i,500)*(WORLD_H-30)
+            );
+
+        if(
+            getTile(x,y).type==="water"
+        ) continue;
+
+        createVillage(x,y);
+    }
+
+
+    mobs=[];
+    animals=[];
+
+    for(let i=0;i<20;i++){
+        spawnAnimal();
+    }
+
+    for(let i=0;i<14;i++){
+        spawnMob();
+    }
+}
+
+
+/* =====================================================
+   MADEN
+===================================================== */
+
+function generateOre(type,count){
+
+    for(let i=0;i<count;i++){
+
+        let x=
+            Math.floor(
+                4+
+                hash(i*7,seed+100)*(WORLD_W-8)
+            );
+
+        let y=
+            Math.floor(
+                4+
+                hash(i*13,seed+500)*(WORLD_H-8)
+            );
+
+        if(
+            getTile(x,y).type==="grass"
+        ){
+
+            setTile(
+                x,
+                y,
+                tile(type,true,3)
+            );
+
+        }
+    }
+}
+
+
+/* =====================================================
+   KÖY
+===================================================== */
+
+function createVillage(x,y){
+
+    for(let yy=-3;yy<=3;yy++){
+
+        for(let xx=-4;xx<=4;xx++){
+
+            if(
+                Math.abs(xx)===4 ||
+                Math.abs(yy)===3
+            ){
+
+                setTile(
+                    x+xx,
+                    y+yy,
+                    tile("plank",true,3)
+                );
+
+            }
+            else{
+
+                setTile(
+                    x+xx,
+                    y+yy,
+                    tile("dirt",false,999)
+                );
+            }
+        }
+    }
+
+    setTile(
+        x,
+        y,
+        tile("plank",true,3)
+    );
+
+
+    villagers.push({
+        x:x*TILE+16,
+        y:y*TILE+16,
+        name:"Köylü",
+        timer:0
+    });
+}
+
+
+/* =====================================================
+   HAYVAN
+===================================================== */
+
+function spawnAnimal(){
+
+    let x=
+        Math.floor(
+            10+
+            Math.random()*(WORLD_W-20)
+        );
+
+    let y=
+        Math.floor(
+            10+
+            Math.random()*(WORLD_H-20)
+        );
+
+    if(
+        getTile(x,y).solid
+    ) return;
+
+    animals.push({
+        x:x*TILE+16,
+        y:y*TILE+16,
+        vx:0,
+        vy:0,
+        timer:0,
+        type:Math.random()<.5?"inek":"koyun"
+    });
+}
+
+
+/* =====================================================
+   YARATIK
+===================================================== */
+
+function spawnMob(){
+
+    let angle=Math.random()*Math.PI*2;
+
+    let distance=
+        450+
+        Math.random()*700;
+
+    let x=
+        player.x+
+        Math.cos(angle)*distance;
+
+    let y=
+        player.y+
+        Math.sin(angle)*distance;
+
+    x=Math.max(
+        TILE*3,
+        Math.min(
+            WORLD_W*TILE-TILE*3,
+            x
+        )
+    );
+
+    y=Math.max(
+        TILE*3,
+        Math.min(
+            WORLD_H*TILE-TILE*3,
+            y
+        )
+    );
+
+    mobs.push({
+
+        x:x,
+        y:y,
+
+        hp:50,
+        maxHp:50,
+
+        radius:11,
+
+        type:
+            Math.random()<.55
+            ?"zombi"
+            :
+            Math.random()<.5
+            ?"örümcek"
+            :"iskelet",
+
+        cooldown:0,
+        hit:0
+    });
+}
+
+
+/* =====================================================
+   ÇARPIŞMA
+===================================================== */
+
+function collision(px,py,r){
+
+    let minX=Math.floor((px-r)/TILE);
+    let maxX=Math.floor((px+r)/TILE);
+
+    let minY=Math.floor((py-r)/TILE);
+    let maxY=Math.floor((py+r)/TILE);
+
+    for(
+        let y=minY;
+        y<=maxY;
+        y++
+    ){
+
+        for(
+            let x=minX;
+            x<=maxX;
+            x++
+        ){
+
+            if(
+                getTile(x,y).solid
+            ){
+
+                return true;
+
+            }
+        }
+    }
+
+    return false;
+}
+
+
+/*
+ * Hareket artık X ve Y ayrı kontrol ediliyor.
+ * Böylece duvara çarpınca diğer yönde yürüyebilir.
+ */
+
+function moveEntity(entity,dx,dy){
+
+    let nx=entity.x+dx;
+
+    if(
+        !collision(
+            nx,
+            entity.y,
+            entity.radius
+        )
+    ){
+
+        entity.x=nx;
+
+    }
+
+
+    let ny=entity.y+dy;
+
+    if(
+        !collision(
+            entity.x,
+            ny,
+            entity.radius
+        )
+    ){
+
+        entity.y=ny;
+
+    }
+}
+
+
+/* =====================================================
+   MOUSE -> DÜNYA
+===================================================== */
+
+function mouseWorld(){
+
+    return {
+        x:mouse.x+camera.x,
+        y:mouse.y+camera.y
+    };
+}
+
+
+function mouseTile(){
+
+    let p=mouseWorld();
+
+    return {
+        x:Math.floor(p.x/TILE),
+        y:Math.floor(p.y/TILE)
+    };
+}
+
+
+/* =====================================================
+   BLOK KIR
+===================================================== */
+
+function breakBlock(){
+
+    let t=mouseTile();
+
+    let b=getTile(t.x,t.y);
+
+    let px=Math.floor(
+        player.x/TILE
+    );
+
+    let py=Math.floor(
+        player.y/TILE
+    );
+
+
+    if(
+        Math.abs(t.x-px)>4 ||
+        Math.abs(t.y-py)>4
+    ){
+
+        toast("Çok uzakta!");
+
+        return;
+    }
+
+
+    if(
+        b.type==="air" ||
+        b.type==="water"
+    ){
+
+        return;
+    }
+
+
+    /* Ağaç için balta */
+
+    if(
+        (b.type==="wood" ||
+         b.type==="leaves") &&
+        selected!==2
+    ){
+
+        toast("🌳 Bunun için balta seç!");
+
+        return;
+    }
+
+
+    /* Taş ve maden için kazma */
+
+    if(
+        (
+            b.type==="stone" ||
+            b.type==="coal" ||
+            b.type==="iron" ||
+            b.type==="gold" ||
+            b.type==="diamond" ||
+            b.type==="brick"
+        )
+        &&
+        selected!==0
+    ){
+
+        toast("⛏️ Bunun için kazma seç!");
+
+        return;
+    }
+
+
+    b.hp--;
+
+
+    particles.push({
+        x:t.x*TILE+16,
+        y:t.y*TILE+16,
+        life:.3,
+        text:"✦"
+    });
+
+
+    if(b.hp<=0){
+
+        collectBlock(b.type);
+
+        setTile(
+            t.x,
+            t.y,
+            air()
+        );
+    }
+}
+
+
+/* =====================================================
+   BLOK TOPLA
+===================================================== */
+
+function collectBlock(type){
+
+    if(type==="wood"){
+        inventory.wood++;
+        inventory.plank+=2;
+    }
+
+    if(type==="leaves"){
+        if(Math.random()<.25){
+            inventory.food++;
+        }
+    }
+
+    if(type==="stone"){
+        inventory.stone++;
+    }
+
+    if(type==="coal"){
+        inventory.coal+=2;
+    }
+
+    if(type==="iron"){
+        inventory.iron++;
+    }
+
+    if(type==="gold"){
+        inventory.gold++;
+    }
+
+    if(type==="diamond"){
+        inventory.diamond++;
+        toast("💎 ELMA... yani ELMAS!");
+    }
+
+    if(type==="brick"){
+        inventory.brick++;
+    }
+}
+
+
+/* =====================================================
+   BLOK KOY
+===================================================== */
+
+function placeBlock(){
+
+    let t=mouseTile();
+
+    let b=getTile(t.x,t.y);
+
+    let px=Math.floor(
+        player.x/TILE
+    );
+
+    let py=Math.floor(
+        player.y/TILE
+    );
+
+
+    if(
+        Math.abs(t.x-px)>4 ||
+        Math.abs(t.y-py)>4
+    ){
+
+        toast("Çok uzakta!");
+
+        return;
+    }
+
+
+    if(b.type!=="air"){
+        return;
+    }
+
+
+    let item=hotbar[selected];
+
+    let type=null;
+
+
+    if(
+        item==="wood" &&
+        inventory.wood>0
+    ){
+
+        inventory.wood--;
+        type="wood";
+
+    }
+
+    else if(
+        item==="stone" &&
+        inventory.stone>0
+    ){
+
+        inventory.stone--;
+        type="stone";
+
+    }
+
+    else if(
+        item==="plank" &&
+        inventory.plank>0
+    ){
+
+        inventory.plank--;
+        type="plank";
+
+    }
+
+    else if(
+        item==="brick" &&
+        inventory.brick>0
+    ){
+
+        inventory.brick--;
+        type="brick";
+
+    }
+
+    else if(
+        item==="torch" &&
+        inventory.torch>0
+    ){
+
+        inventory.torch--;
+        type="torch";
+
+    }
+
+
+    if(type){
+
+        /*
+         * Oyuncunun içine blok koyulmasını engelle.
+         */
+
+        let bx=t.x*TILE+16;
+        let by=t.y*TILE+16;
+
+        if(
+            Math.hypot(
+                bx-player.x,
+                by-player.y
+            ) < 28
+        ){
+
+            toast("Kendinin içine blok koyamazsın!");
+
+            if(type==="wood")inventory.wood++;
+            if(type==="stone")inventory.stone++;
+            if(type==="plank")inventory.plank++;
+            if(type==="brick")inventory.brick++;
+            if(type==="torch")inventory.torch++;
+
+            return;
+        }
+
+
+        setTile(
+            t.x,
+            t.y,
+            tile(
+                type,
+                type!=="torch",
+                3
+            )
+        );
+    }
+}
+
+
+/* =====================================================
+   YAKIN DÖVÜŞ
+===================================================== */
+
+function attack(){
+
+    if(
+        player.attackCooldown>0
+    ) return;
+
+
+    player.attackCooldown=.35;
+
+
+    let target=null;
+    let closest=85;
+
+
+    for(let m of mobs){
+
+        let d=
+            Math.hypot(
+                m.x-player.x,
+                m.y-player.y
+            );
+
+
+        if(d>closest) continue;
+
+
+        let a=
+            Math.atan2(
+                m.y-player.y,
+                m.x-player.x
+            );
+
+
+        let mousePos=mouseWorld();
+
+        let playerAngle=
+            Math.atan2(
+                mousePos.y-player.y,
+                mousePos.x-player.x
+            );
+
+
+        let difference=Math.abs(
+            Math.atan2(
+                Math.sin(a-playerAngle),
+                Math.cos(a-playerAngle)
+            )
+        );
+
+
+        if(difference<1.3){
+
+            target=m;
+            closest=d;
+        }
+    }
+
+
+    if(target){
+
+        target.hp-=22;
+        target.hit=.15;
+
+        toast("⚔️ Vurdun!");
+
+
+        particles.push({
+            x:target.x,
+            y:target.y,
+            life:.4,
+            text:"-22"
+        });
+
+
+        if(target.hp<=0){
+
+            if(Math.random()<.7)
+                inventory.food++;
+
+            if(Math.random()<.3)
+                inventory.coal++;
+
+            mobs.splice(
+                mobs.indexOf(target),
+                1
+            );
+
+            setTimeout(
+                spawnMob,
+                2500
+            );
+        }
+    }
+}
+
+
+/* =====================================================
+   YEMEK
+===================================================== */
+
+function eat(){
+
+    if(
+        inventory.food>0 &&
+        player.hunger<100
+    ){
+
+        inventory.food--;
+
+        player.hunger=
+            Math.min(
+                100,
+                player.hunger+30
+            );
+
+        player.hp=
+            Math.min(
+                100,
+                player.hp+5
+            );
+
+        toast("🍖 Yemek yedin!");
+
+    }
+}
+
+
+/* =====================================================
+   ÜRETİM
+===================================================== */
+
+function craft(){
+
+    if(inventory.wood>=1){
+
+        inventory.wood--;
+
+        inventory.plank+=4;
+
+        toast("🪵 4 kalas üretildi!");
+
+    }
+
+    else if(
+        inventory.stone>=8 &&
+        inventory.coal>=1
+    ){
+
+        inventory.stone-=8;
+        inventory.coal--;
+
+        inventory.brick+=4;
+
+        toast("🧱 4 tuğla üretildi!");
+
+    }
+
+    else{
+
+        toast(
+            "C: 1 odun → 4 kalas | 8 taş + kömür → 4 tuğla"
+        );
+    }
+}
+
+
+/* =====================================================
+   GÜNCELLE
+===================================================== */
+
+function update(dt){
+
+    if(!game)return;
+
+
+    /* zaman */
+
+    time+=dt*.8;
+
+    if(time>=24){
+
+        time-=24;
+        day++;
+
+    }
+
+
+    player.attackCooldown=
+        Math.max(
+            0,
+            player.attackCooldown-dt
+        );
+
+    player.damageFlash=
+        Math.max(
+            0,
+            player.damageFlash-dt
+        );
+
+
+    /* HAREKET */
+
+    let dx=0;
+    let dy=0;
+
+
+    if(keys["w"])dy--;
+    if(keys["s"])dy++;
+    if(keys["a"])dx--;
+    if(keys["d"])dx++;
+
+
+    let length=
+        Math.hypot(dx,dy);
+
+
+    if(length>0){
+
+        dx/=length;
+        dy/=length;
+
+
+        let speed=
+            keys["shift"]
+            ?210
+            :145;
+
+
+        if(player.energy<=0)
+            speed=80;
+
+
+        moveEntity(
+            player,
+            dx*speed*dt,
+            dy*speed*dt
+        );
+
+
+        player.energy=
+            Math.max(
+                0,
+                player.energy-
+                dt*
+                (keys["shift"]?9:3)
+            );
+
+    }
+    else{
+
+        player.energy=
+            Math.min(
+                100,
+                player.energy+dt*8
+            );
+    }
+
+
+    /* AÇLIK */
+
+    player.hunger=
+        Math.max(
+            0,
+            player.hunger-dt*.38
+        );
+
+
+    if(
+        player.hunger<10
+    ){
+
+        player.hp=
+            Math.max(
+                0,
+                player.hp-dt*2
+            );
+    }
+
+
+    /* YARATIKLAR */
+
+    for(let m of mobs){
+
+        m.cooldown=
+            Math.max(
+                0,
+                m.cooldown-dt
+            );
+
+        m.hit=
+            Math.max(
+                0,
+                m.hit-dt
+            );
+
+
+        let d=
+            Math.hypot(
+                player.x-m.x,
+                player.y-m.y
+            );
+
+
+        if(d<430){
+
+            let vx=
+                (player.x-m.x)/
+                (d||1);
+
+            let vy=
+                (player.y-m.y)/
+                (d||1);
+
+
+            let speed=
+                m.type==="örümcek"
+                ?70
+                :50;
+
+
+            moveEntity(
+                m,
+                vx*speed*dt,
+                vy*speed*dt
+            );
+
+
+            if(
+                d<35 &&
+                m.cooldown<=0
+            ){
+
+                m.cooldown=1.1;
+
+                player.hp=
+                    Math.max(
+                        0,
+                        player.hp-8
+                    );
+
+                player.damageFlash=.2;
+
+                toast("👾 Yaratık saldırdı!");
+            }
+        }
+    }
+
+
+    /* HAYVANLAR */
+
+    for(let a of animals){
+
+        a.timer-=dt;
+
+        if(a.timer<=0){
+
+            a.timer=
+                1+
+                Math.random()*3;
+
+            a.vx=
+                (Math.random()-.5)*45;
+
+            a.vy=
+                (Math.random()-.5)*45;
+        }
+
+
+        moveEntity(
+            a,
+            a.vx*dt,
+            a.vy*dt
+        );
+    }
+
+
+    /* KÖYLÜLER */
+
+    for(let v of villagers){
+
+        v.timer-=dt;
+
+        if(v.timer<=0){
+
+            v.timer=
+                2+
+                Math.random()*4;
+
+            v.x+=
+                (Math.random()-.5)*30;
+
+            v.y+=
+                (Math.random()-.5)*30;
+        }
+    }
+
+
+    /* PARTICLES */
+
+    for(let p of particles){
+
+        p.life-=dt;
+        p.y-=25*dt;
+    }
+
+    particles=
+        particles.filter(
+            p=>p.life>0
+        );
+
+
+    /* Kamera */
+
+    camera.x=
+        player.x-W/2;
+
+    camera.y=
+        player.y-H/2;
+
+
+    camera.x=
+        Math.max(
+            0,
+            Math.min(
+                WORLD_W*TILE-W,
+                camera.x
+            )
+        );
+
+    camera.y=
+        Math.max(
+            0,
+            Math.min(
+                WORLD_H*TILE-H,
+                camera.y
+            )
+        );
+
+
+    /* ÖLÜM */
+
+    if(player.hp<=0){
+
+        player.hp=100;
+        player.hunger=70;
+        player.energy=100;
+
+        player.x=
+            Math.floor(WORLD_W/2)*TILE+16;
+
+        player.y=
+            Math.floor(WORLD_H/2)*TILE+16;
+
+        toast("💀 Yeniden doğdun!");
+
+    }
+}
+
+
+/* =====================================================
+   TILE ÇİZ
+===================================================== */
+
+function drawTile(x,y,t){
+
+    let sx=
+        x*TILE-camera.x;
+
+    let sy=
+        y*TILE-camera.y;
+
+
+    if(
+        sx<-TILE ||
+        sy<-TILE ||
+        sx>W ||
+        sy>H
+    )return;
+
+
+    let color=
+        COLORS[t.type]||
+        "#111";
+
+
+    ctx.fillStyle=color;
+
+    ctx.fillRect(
+        sx,
+        sy,
+        TILE,
+        TILE
+    );
+
+
+    /* çimen */
+
+    if(t.type==="grass"){
+
+        ctx.fillStyle=COLORS.grass2;
+
+        ctx.fillRect(
+            sx+4,
+            sy+8,
+            3,
+            8
+        );
+
+        ctx.fillRect(
+            sx+20,
+            sy+19,
+            3,
+            6
+        );
+    }
+
+
+    /* taş */
+
+    if(
+        t.type==="stone" ||
+        t.type==="coal" ||
+        t.type==="iron" ||
+        t.type==="gold" ||
+        t.type==="diamond"
+    ){
+
+        ctx.fillStyle="#555";
+
+        ctx.fillRect(
+            sx+5,
+            sy+7,
+            5,
+            4
+        );
+
+        ctx.fillRect(
+            sx+20,
+            sy+20,
+            4,
+            4
+        );
+    }
+
+
+    /* cevher */
+
+    if(t.type==="coal"){
+
+        ctx.fillStyle=COLORS.coal;
+
+        ctx.fillRect(
+            sx+9,
+            sy+12,
+            12,
+            11
+        );
+    }
+
+
+    if(t.type==="iron"){
+
+        ctx.fillStyle=COLORS.iron;
+
+        ctx.fillRect(
+            sx+8,
+            sy+9,
+            15,
+            13
+        );
+    }
+
+
+    if(t.type==="gold"){
+
+        ctx.fillStyle=COLORS.gold;
+
+        ctx.fillRect(
+            sx+8,
+            sy+8,
+            15,
+            15
+        );
+    }
+
+
+    if(t.type==="diamond"){
+
+        ctx.fillStyle=COLORS.diamond;
+
+        ctx.beginPath();
+
+        ctx.moveTo(sx+16,sy+5);
+        ctx.lineTo(sx+25,sy+15);
+        ctx.lineTo(sx+16,sy+27);
+        ctx.lineTo(sx+7,sy+15);
+
+        ctx.closePath();
+
+        ctx.fill();
+    }
+
+
+    /* ağaç */
+
+    if(t.type==="wood"){
+
+        ctx.fillStyle="#4e321f";
+
+        ctx.fillRect(
+            sx+11,
+            sy,
+            10,
+            TILE
+        );
+
+        ctx.fillStyle="#95653b";
+
+        ctx.fillRect(
+            sx+14,
+            sy,
+            4,
+            TILE
+        );
+    }
+
+
+    /* yaprak */
+
+    if(t.type==="leaves"){
+
+        ctx.fillStyle="#4a8a3b";
+
+        ctx.fillRect(
+            sx+4,
+            sy+4,
+            24,
+            23
+        );
+
+        ctx.fillStyle="#5b9c46";
+
+        ctx.fillRect(
+            sx+8,
+            sy+8,
+            6,
+            6
+        );
+    }
+
+
+    /* tahta */
+
+    if(t.type==="plank"){
+
+        ctx.strokeStyle="#744b2b";
+
+        ctx.strokeRect(
+            sx,
+            sy,
+            TILE,
+            TILE
+        );
+
+        ctx.beginPath();
+
+        ctx.moveTo(sx,sy+16);
+        ctx.lineTo(sx+32,sy+16);
+
+        ctx.stroke();
+    }
+
+
+    /* tuğla */
+
+    if(t.type==="brick"){
+
+        ctx.strokeStyle="#713426";
+
+        ctx.strokeRect(
+            sx,
+            sy,
+            TILE,
+            TILE
+        );
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            sx,
+            sy+16
+        );
+
+        ctx.lineTo(
+            sx+32,
+            sy+16
+        );
+
+        ctx.stroke();
+    }
+
+
+    /* meşale */
+
+    if(t.type==="torch"){
+
+        ctx.fillStyle="#80552e";
+
+        ctx.fillRect(
+            sx+14,
+            sy+13,
+            4,
+            16
+        );
+
+        ctx.fillStyle="#ffbf32";
+
+        ctx.fillRect(
+            sx+10,
+            sy+6,
+            12,
+            10
+        );
+    }
+}
+
+
+/* =====================================================
+   ÇİZ
+===================================================== */
+
+function draw(){
+
+    ctx.fillStyle="#101510";
+
+    ctx.fillRect(
+        0,
+        0,
+        W,
+        H
+    );
+
+
+    if(!game)return;
+
+
+    let minX=
+        Math.max(
+            0,
+            Math.floor(camera.x/TILE)-1
+        );
+
+    let maxX=
+        Math.min(
+            WORLD_W-1,
+            Math.ceil(
+                (camera.x+W)/TILE
+            )
+        );
+
+
+    let minY=
+        Math.max(
+            0,
+            Math.floor(camera.y/TILE)-1
+        );
+
+    let maxY=
+        Math.min(
+            WORLD_H-1,
+            Math.ceil(
+                (camera.y+H)/TILE
+            )
+        );
+
+
+    /* DÜNYA */
+
+    for(
+        let y=minY;
+        y<=maxY;
+        y++
+    ){
+
+        for(
+            let x=minX;
+            x<=maxX;
+            x++
+        ){
+
+            drawTile(
+                x,
+                y,
+                getTile(x,y)
+            );
+        }
+    }
+
+
+    /* HAYVANLAR */
+
+    for(let a of animals){
+
+        let x=a.x-camera.x;
+        let y=a.y-camera.y;
+
+        ctx.fillStyle=
+            a.type==="inek"
+            ?"#5b4330"
+            :"#eee";
+
+        ctx.beginPath();
+
+        ctx.ellipse(
+            x,
+            y,
+            12,
+            9,
+            0,
+            0,
+            Math.PI*2
+        );
+
+        ctx.fill();
+
+        ctx.fillStyle="#222";
+
+        ctx.fillRect(
+            x+6,
+            y-3,
+            3,
+            3
+        );
+    }
+
+
+    /* KÖYLÜLER */
+
+    for(let v of villagers){
+
+        let x=v.x-camera.x;
+        let y=v.y-camera.y;
+
+        ctx.fillStyle="#d5a978";
+
+        ctx.beginPath();
+
+        ctx.arc(
+            x,
+            y-7,
+            8,
+            0,
+            Math.PI*2
+        );
+
+        ctx.fill();
+
+        ctx.fillStyle="#6c4930";
+
+        ctx.fillRect(
+            x-8,
+            y+2,
+            16,
+            17
+        );
+
+        ctx.fillStyle="white";
+
+        ctx.font="11px Arial";
+
+        ctx.fillText(
+            "NPC",
+            x-12,
+            y-19
+        );
+    }
+
+
+    /* YARATIKLAR */
+
+    for(let m of mobs){
+
+        let x=m.x-camera.x;
+        let y=m.y-camera.y;
+
+        if(
+            x<-30 ||
+            y<-30 ||
+            x>W+30 ||
+            y>H+30
+        )continue;
+
+
+        ctx.save();
+
+        ctx.translate(x,y);
+
+
+        if(m.type==="zombi"){
+
+            ctx.fillStyle=
+                m.hit>0
+                ?"white"
+                :"#4b9b55";
+
+            ctx.fillRect(
+                -10,
+                -13,
+                20,
+                27
+            );
+
+        }
+
+        else if(
+            m.type==="örümcek"
+        ){
+
+            ctx.fillStyle=
+                m.hit>0
+                ?"white"
+                :"#713a32";
+
+            ctx.beginPath();
+
+            ctx.ellipse(
+                0,
+                4,
+                16,
+                10,
+                0,
+                0,
+                Math.PI*2
+            );
+
+            ctx.fill();
+
+        }
+
+        else{
+
+            ctx.fillStyle=
+                m.hit>0
+                ?"white"
+                :"#aaa";
+
+            ctx.fillRect(
+                -10,
+                -13,
+                20,
+                27
+            );
+        }
+
+
+        ctx.fillStyle="#222";
+
+        ctx.fillRect(
+            -6,
+            -7,
+            4,
+            4
+        );
+
+        ctx.fillRect(
+            3,
+            -7,
+            4,
+            4
+        );
+
+
+        ctx.restore();
+
+
+        /* CAN */
+
+        ctx.fillStyle="#222";
+
+        ctx.fillRect(
+            x-16,
+            y-25,
+            32,
+            4
+        );
+
+        ctx.fillStyle="#e04444";
+
+        ctx.fillRect(
+            x-16,
+            y-25,
+            32*(m.hp/m.maxHp),
+            4
+        );
+    }
+
+
+    /* OYUNCU */
+
+    let px=
+        player.x-camera.x;
+
+    let py=
+        player.y-camera.y;
+
+
+    ctx.save();
+
+    ctx.translate(
+        px,
+        py
+    );
+
+
+    /* kafa */
+
+    ctx.fillStyle="#e5bd91";
+
+    ctx.beginPath();
+
+    ctx.arc(
+        0,
+        -6,
+        8,
+        0,
+        Math.PI*2
+    );
+
+    ctx.fill();
+
+
+    /* gövde */
+
+    ctx.fillStyle="#3f73b2";
+
+    ctx.fillRect(
+        -8,
+        3,
+        16,
+        17
+    );
+
+
+    /* göz */
+
+    ctx.fillStyle="#222";
+
+    ctx.fillRect(
+        -5,
+        -8,
+        3,
+        3
+    );
+
+    ctx.fillRect(
+        2,
+        -8,
+        3,
+        3
+    );
+
+
+    /* saldırı kılıcı */
+
+    if(
+        player.attackCooldown>.15
+    ){
+
+        let mp=mouseWorld();
+
+        let angle=
+            Math.atan2(
+                mp.y-player.y,
+                mp.x-player.x
+            );
+
+        ctx.rotate(angle);
+
+        ctx.fillStyle="#ddd";
+
+        ctx.fillRect(
+            7,
+            -2,
+            33,
+            4
+        );
+
+        ctx.fillStyle="#8c6034";
+
+        ctx.fillRect(
+            4,
+            -3,
+            9,
+            6
+        );
+    }
+
+
+    ctx.restore();
+
+
+    /* hedef */
+
+    let mt=mouseTile();
+
+    let tx=
+        mt.x*TILE-camera.x;
+
+    let ty=
+        mt.y*TILE-camera.y;
+
+
+    if(
+        Math.abs(
+            mt.x-
+            Math.floor(player.x/TILE)
+        )<=4 &&
+        Math.abs(
+            mt.y-
+            Math.floor(player.y/TILE)
+        )<=4
+    ){
+
+        ctx.strokeStyle="white";
+
+        ctx.lineWidth=2;
+
+        ctx.strokeRect(
+            tx+1,
+            ty+1,
+            TILE-2,
+            TILE-2
+        );
+
+        ctx.lineWidth=1;
+    }
+
+
+    /* GECE */
+
+    let light=
+        (
+            Math.sin(
+                time/24*Math.PI*2-
+                Math.PI/2
+            )+1
+        )/2;
+
+
+    let darkness=
+        Math.max(
+            0,
+            .58-light*.58
+        );
+
+
+    if(darkness>.02){
+
+        ctx.fillStyle=
+            `rgba(5,10,30,${darkness})`;
+
+        ctx.fillRect(
+            0,
+            0,
+            W,
+            H
+        );
+    }
+
+
+    drawHUD();
+}
+
+
+/* =====================================================
+   HUD
+===================================================== */
+
+function bar(
+    x,
+    y,
+    w,
+    h,
+    value,
+    color,
+    label
+){
+
+    ctx.fillStyle="#182019";
+
+    ctx.fillRect(
+        x,
+        y,
+        w,
+        h
+    );
+
+    ctx.fillStyle=color;
+
+    ctx.fillRect(
+        x,
+        y,
+        w*
+        Math.max(
+            0,
+            Math.min(
+                1,
+                value/100
+            )
+        ),
+        h
+    );
+
+    ctx.strokeStyle="#536052";
+
+    ctx.strokeRect(
+        x,
+        y,
+        w,
+        h
+    );
+
+    ctx.fillStyle="white";
+
+    ctx.font="13px Arial";
+
+    ctx.fillText(
+        label,
+        x+6,
+        y+h-5
+    );
+}
+
+
+function count(item){
+
+    if(item==="wood")return inventory.wood;
+    if(item==="stone")return inventory.stone;
+    if(item==="torch")return inventory.torch;
+    if(item==="plank")return inventory.plank;
+    if(item==="brick")return inventory.brick;
+    if(item==="food")return inventory.food;
+
+    return 0;
+}
+
+
+function drawHUD(){
+
+    /* SOL PANEL */
+
+    ctx.fillStyle="#0b110ddd";
+
+    ctx.fillRect(
+        12,
+        12,
+        275,
+        205
+    );
+
+    ctx.strokeStyle="#4c5d4a";
+
+    ctx.strokeRect(
+        12,
+        12,
+        275,
+        205
+    );
+
+
+    ctx.fillStyle="white";
+
+    ctx.font="bold 21px Arial";
+
+    ctx.fillText(
+        "🌲 WILD FRONTIER",
+        25,
+        39
+    );
+
+
+    bar(
+        25,
+        51,
+        235,
+        19,
+        player.hp,
+        "#d94b4b",
+        "❤ Can"
+    );
+
+
+    bar(
+        25,
+        77,
+        235,
+        19,
+        player.hunger,
+        "#e2a93c",
+        "🍗 Açlık"
+    );
+
+
+    bar(
+        25,
+        103,
+        235,
+        19,
+        player.energy,
+        "#dfd048",
+        "⚡ Enerji"
+    );
+
+
+    ctx.fillStyle="#ddd";
+
+    ctx.font="13px Arial";
+
+    let hours=
+        Math.floor(time);
+
+    let minutes=
+        Math.floor(
+            (time%1)*60
+        );
+
+
+    ctx.fillText(
+        `☀️ Gün ${day+1} • ${String(hours).padStart(2,"0")}:${String(minutes).padStart(2,"0")}`,
+        25,
+        147
+    );
+
+
+    ctx.fillText(
+        `🪵 ${inventory.wood}   🪨 ${inventory.stone}   ⚙ ${inventory.iron}`,
+        25,
+        169
+    );
+
+
+    ctx.fillText(
+        `🪙 ${inventory.gold}   💎 ${inventory.diamond}   ⬛ ${inventory.coal}`,
+        25,
+        190
+    );
+
+
+    /* HOTBAR */
+
+    let size=58;
+
+    let gap=6;
+
+    let total=
+        9*size+
+        8*gap;
+
+    let start=
+        W/2-total/2;
+
+    let y=
+        H-75;
+
+
+    const icons={
+        pickaxe:"⛏️",
+        sword:"⚔️",
+        axe:"🪓",
+        wood:"🪵",
+        stone:"🪨",
+        torch:"🔥",
+        plank:"▦",
+        brick:"🧱",
+        food:"🍖"
+    };
+
+
+    hotbar.forEach(
+        (item,i)=>{
+
+            let x=
+                start+
+                i*(size+gap);
+
+
+            ctx.fillStyle=
+                i===selected
+                ?" #6a7025"
+                :"#172017";
+
+            if(i===selected)
+                ctx.fillStyle="#4d5a22";
+
+
+            ctx.fillRect(
+                x,
+                y,
+                size,
+                size
+            );
+
+
+            ctx.strokeStyle=
+                i===selected
+                ?" #e6d64d"
+                :"#536052";
+
+            if(i===selected)
+                ctx.strokeStyle="#e6d64d";
+
+
+            ctx.lineWidth=
+                i===selected
+                ?3
+                :1;
+
+
+            ctx.strokeRect(
+                x,
+                y,
+                size,
+                size
+            );
+
+
+            ctx.lineWidth=1;
+
+
+            ctx.font="24px Arial";
+
+            ctx.fillStyle="white";
+
+            ctx.fillText(
+                icons[item],
+                x+16,
+                y+30
+            );
+
+
+            ctx.font="11px Arial";
+
+            ctx.fillText(
+                i+1,
+                x+5,
+                y+13
+            );
+
+
+            let c=count(item);
+
+            if(c>0){
+
+                ctx.font="bold 13px Arial";
+
+                ctx.fillText(
+                    c,
+                    x+41,
+                    y+52
+                );
+            }
+        }
+    );
+
+
+    /* MINIMAP */
+
+    let mw=150;
+
+    let mh=150;
+
+    let mx=W-mw-15;
+
+    let my=15;
+
+
+    ctx.fillStyle="#111a12";
+
+    ctx.fillRect(
+        mx,
+        my,
+        mw,
+        mh
+    );
+
+
+    let scale=5;
+
+
+    for(
+        let yy=0;
+        yy<mh;
+        yy+=scale
+    ){
+
+        for(
+            let xx=0;
+            xx<mw;
+            xx+=scale
+        ){
+
+            let wx=
+                Math.floor(
+                    xx/mw*WORLD_W
+                );
+
+            let wy=
+                Math.floor(
+                    yy/mh*WORLD_H
+                );
+
+
+            let t=
+                getTile(wx,wy).type;
+
+
+            ctx.fillStyle=
+                t==="water"
+                ?" #337bb0"
+                :
+                t==="sand"
+                ?" #c5ad69"
+                :
+                t==="stone"
+                ?" #777"
+                :
+                "#397139";
+
+
+            if(t==="water")
+                ctx.fillStyle="#337bb0";
+
+            if(t==="sand")
+                ctx.fillStyle="#c5ad69";
+
+            if(t==="stone")
+                ctx.fillStyle="#777";
+
+            if(
+                t!=="water" &&
+                t!=="sand" &&
+                t!=="stone"
+            )
+                ctx.fillStyle="#397139";
+
+
+            ctx.fillRect(
+                mx+xx,
+                my+yy,
+                scale,
+                scale
+            );
+        }
+    }
+
+
+    ctx.fillStyle="white";
+
+    ctx.beginPath();
+
+    ctx.arc(
+        mx+
+        player.x/
+        (WORLD_W*TILE)*
+        mw,
+
+        my+
+        player.y/
+        (WORLD_H*TILE)*
+        mh,
+
+        4,
+        0,
+        Math.PI*2
+    );
+
+    ctx.fill();
+}
+
+
+/* =====================================================
+   KAYIT
+===================================================== */
+
+function saveGame(){
+
+    localStorage.setItem(
+        "wildFrontierSave",
+        JSON.stringify({
+            seed,
+            world,
+            player,
+            inventory,
+            time,
+            day,
+            selected
+        })
+    );
+
+    toast("💾 Oyun kaydedildi!");
+}
+
+
+function loadGame(){
+
+    let data=
+        localStorage.getItem(
+            "wildFrontierSave"
+        );
+
+
+    if(!data){
+
+        toast("Kayıt bulunamadı!");
+
+        return;
+    }
+
+
+    try{
+
+        let d=JSON.parse(data);
+
+        seed=d.seed;
+
+        world=d.world;
+
+        Object.assign(
+            player,
+            d.player
+        );
+
+        Object.assign(
+            inventory,
+            d.inventory
+        );
+
+        time=d.time;
+        day=d.day;
+
+        selected=d.selected||0;
+
+        mobs=[];
+        animals=[];
+        villagers=[];
+
+        for(let i=0;i<20;i++)
+            spawnAnimal();
+
+        for(let i=0;i<14;i++)
+            spawnMob();
+
+        game=true;
+
+        document.getElementById(
+            "menu"
+        ).style.display="none";
+
+        toast("💾 Kayıt yüklendi!");
+
+    }
+    catch(e){
+
+        toast("Kayıt bozulmuş!");
+
+    }
+}
+
+
+/* =====================================================
+   YENİ OYUN
+===================================================== */
+
+function newGame(){
+
+    seed=
+        Math.floor(
+            Math.random()*999999999
+        );
+
+    time=8;
+
+    day=0;
+
+
+    Object.assign(
+        player,
+        {
+            x:130*TILE+16,
+            y:130*TILE+16,
+            hp:100,
+            hunger:100,
+            energy:100,
+            attackCooldown:0,
+            damageFlash:0
+        }
+    );
+
+
+    Object.keys(inventory)
+        .forEach(
+            key=>{
+                inventory[key]=0;
+            }
+        );
+
+
+    inventory.wood=8;
+    inventory.stone=5;
+    inventory.food=5;
+    inventory.torch=8;
+
+
+    generateWorld();
+
+
+    game=true;
+
+    document.getElementById(
+        "menu"
+    ).style.display="none";
+
+
+    toast("🌍 Yeni dünya oluşturuldu!");
+}
+
+
+/* =====================================================
+   TOAST
+===================================================== */
+
+function toast(text){
+
+    let el=
+        document.getElementById(
+            "toast"
+        );
+
+    el.textContent=text;
+
+    el.style.opacity=1;
+
+    clearTimeout(
+        toast.timer
+    );
+
+    toast.timer=
+        setTimeout(
+            ()=>{
+                el.style.opacity=0;
+            },
+            1600
+        );
+}
+
+
+/* =====================================================
+   KLAVYE
+===================================================== */
+
+addEventListener(
+    "keydown",
+    e=>{
+
+        keys[
+            e.key.toLowerCase()
+        ]=true;
+
+
+        if(
+            e.key>="1" &&
+            e.key<="9"
+        ){
+
+            selected=
+                Number(e.key)-1;
+        }
+
+
+        if(
+            e.key.toLowerCase()==="f"
+        ){
+
+            eat();
+        }
+
+
+        if(
+            e.key.toLowerCase()==="c"
+        ){
+
+            craft();
+        }
+
+
+        if(
+            e.key.toLowerCase()==="p"
+        ){
+
+            saveGame();
+        }
+    }
+);
+
+
+addEventListener(
+    "keyup",
+    e=>{
+
+        keys[
+            e.key.toLowerCase()
+        ]=false;
+
+    }
+);
+
+
+/* =====================================================
+   MOUSE
+===================================================== */
+
+canvas.addEventListener(
+    "mousemove",
+    e=>{
+
+        mouse.x=e.clientX;
+        mouse.y=e.clientY;
+
+    }
+);
+
+
+canvas.addEventListener(
+    "mousedown",
+    e=>{
+
+        if(!game)return;
+
+
+        if(e.button===0){
+
+            /*
+             * Yakında yaratık varsa
+             * sadece saldır.
+             *
+             * Yoksa blok kır.
+             */
+
+            let nearby=
+                mobs.some(
+                    m=>
+                    Math.hypot(
+                        m.x-player.x,
+                        m.y-player.y
+                    )<85
+                );
+
+
+            if(nearby){
+
+                attack();
+
+            }
+            else{
+
+                breakBlock();
+
+            }
+        }
+
+
+        if(e.button===2){
+
+            placeBlock();
+
+        }
+    }
+);
+
+
+canvas.addEventListener(
+    "contextmenu",
+    e=>e.preventDefault()
+);
+
+
+/* =====================================================
+   OYUN DÖNGÜSÜ
+===================================================== */
+
+let last=performance.now();
+
+function loop(now){
+
+    let dt=
+        Math.min(
+            .033,
+            (now-last)/1000
+        );
+
+    last=now;
+
+    update(dt);
+
+    draw();
+
+    requestAnimationFrame(loop);
+}
+
+
+requestAnimationFrame(loop);
+
+</script>
+
+</body>
+</html>
