@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oyunçöplüğü</title>
+
+<style>
+body {
+    margin: 0;
+    background: #10111a;
+    color: white;
+    font-family: Arial, sans-serif;
+}
+header {
+    background: #191b29;
+    padding: 25px;
+    text-align: center;
+}
+h1 { color: #7c83ff; }
+main { padding: 25px; }
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 20px;
+}
+.card {
+    background: #202234;
+    padding: 25px;
+    border-radius: 15px;
+}
+button {
+    background: #7c83ff;
+    color: white;
+    border: 0;
+    padding: 12px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+a { text-decoration: none; }
+</style>
+</head>
+
+<body>
+<header>
+    <h1>🚀 OyunÇöplüğü</h1>
+    <p>Bütün oyunlarım ve uygulamalarım tek yerde!</p>
+</header>
+
+<main>
+    <h2>🎮 Oyunlarım ve Uygulamalarım</h2>
+
+    <div class="cards">
+
+        <div class="card">
+            <h3>⚽ Futbol Oyunu</h3>
+            <p>Kendi futbol oyunumu keşfet!</p>
+            <a href="#" target="_blank">
+                <button>Oyunu Aç</button>
+            </a>
+        </div>
+
+        <div class="card">
+            <h3>⛏️ Minecraft Oyunum</h3>
+            <p>Macera başlasın!</p>
+            <a href="#" target="_blank">
+                <button>Oyunu Aç</button>
+            </a>
+        </div>
+
+        <div class="card">
+            <h3>🎬 PlayTube</h3>
+            <p>Video platformum.</p>
+            <a href="#" target="_blank">
+                <button>Uygulamayı Aç</button>
+            </a>
+        </div>
+
+    </div>
+</main>
+</body>
+</html>
